@@ -1,0 +1,309 @@
+---
+title: "proj"
+author: "Yinglu Deng"
+date: "10/18/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Beijing PM2.5 Dataset Exploring
+
+This hourly dataset contains the PM2.5 data of US Embassy in Beijing. Meanwhile, meteorological data from Beijing Capital International Airport are also included. (Source from https://archive-beta.ics.uci.edu/ml/datasets/beijing+pm2+5+data)
+
+PM2.5 is a 2.5 micrometers or less than 2.5 particle pollutant exposure in the air. It increased hospital admissions for heart or lung causes, acute and chronic bronchitis.
+
+### Attribute Information:
+year: year of data in this row
+month: month of data in this row
+day: day of data in this row
+hour: hour of data in this row
+pm2.5: PM2.5 concentration (ug/m^3)
+DEWP: Dew Point (â„ƒ)
+TEMP: Temperature (â„ƒ)
+PRES: Pressure (hPa)
+cbwd: Combined wind direction
+Iws: Cumulated wind speed (m/s)
+Is: Cumulated hours of snow
+Ir: Cumulated hours of rain
+
+
+```{r cars}
+# comment out after installation
+#install.packages('raster')
+#install.packages('ggmap')
+#install.packages('viridis')
+#install.packages('scales')
+
+# load packages
+library(ggmap)
+library(raster)
+library(scales)
+library(viridis)
+library(tidyverse) 
+library(patchwork) 
+library(dplyr)
+library(MARSS)
+library(forecast)
+
+myData <- read.csv("PRSA_data_2010.1.1-2014.12.31.csv") 
+head(myData)
+#view(myData)
+
+#completeness
+missing_data_pm <- myData[!complete.cases(myData$pm2.5),]
+round((dim(missing_data_pm)[1] / dim(myData)[1]) * 100, digit=0)
+
+#basic descriptive statistics for each time series (at least mean, CV, ACF for each variable)
+nrow(myData)   #rows in total
+summary(myData)   # summarize data: min, mean, max, NAs
+
+# create a column with month as a factor instead of integer
+myData1 <- myData %>% 
+  mutate(month_fac=factor(month)) # an ordered category
+head(myData1)
+#view(myData1)
+
+# definition: The coefficient of variation (CV) is the ratio of the standard deviation to the mean. The higher the coefficient of variation, the greater the level of dispersion around the mean. It is generally expressed as a percentage.
+CV <- function(x, ...){(sd(x, ...)/mean(x, ...))*100} # specify a function for CV
+
+## calculate means and CVs with NAs removed using the na.rm=T argument
+myData2 <- myData1 %>% 
+  group_by(month_fac) %>% 
+  summarize(pm2.5_mean=mean(pm2.5, na.rm=T), pm2.5_CV=CV(pm2.5, na.rm=T))
+summary(myData2)
+#view(myData2)
+
+myData_day <- myData %>% 
+  group_by(year, month, day) %>% 
+  summarize(pm2.5_mean=mean(pm2.5, na.rm=T), pm2.5_CV=CV(pm2.5, na.rm=T))
+summary(myData_day)
+#view(myData_day)
+
+date <-seq(lubridate::as_date("2010-1-1"), lubridate::as_date("2014-12-31"), by = "days")
+#view(data)
+myData_day <- myData_day %>% 
+              add_column(date = date)
+#view(myData_day)
+
+# Plot an ACF of the ozone time series
+#plot.ts(myData$pm2.5, main='PM2.5 Time Series', col = "purple", ylab = "PM2.5")
+
+acf(myData$pm2.5, na.action = na.pass)
+pacf(myData$pm2.5, na.action = na.pass)
+
+p=myData_day%>%
+  ggplot(aes(date,pm2.5_mean))+
+  geom_line()+
+  labs(title="Average PM2.5 in 2010-2014",x="Date", y = "Average PM2.5 (ug/m^3)")
+print(p)
+```
+(1)The length of the time series is from the date 2010-01-01 to 2014-12-31. The frequency is one hour.
+(2)There is 5% of NA's.
+(3)There are total 43824 variables and 12 features in the dataset. The mean of pm2.5 is 98.61 and maximum is 994. After factor by month, the minimum pm2.5 mean is 80 and the maximum pm2.5 mean is 125.74. And the mean of pm2.5 coefficient of variation is 86.67. This autocorrelation represents the degree of positive correlation within 46 lags over successive time intervals. (Correlogram: [-1, 1])
+
+
+# Q1: What is the day of average highest pm2.5 in each month?    
+```{r code chunk 1}
+
+
+
+month_day <-seq(lubridate::as_date("0000-1-1"), lubridate::as_date("0000-12-31"), by = "days")
+myData_month_day <- myData %>% 
+  group_by(month, day) %>% 
+  summarize(pm2.5_mean=mean(pm2.5, na.rm=T), pm2.5_CV=CV(pm2.5, na.rm=T))
+summary(myData_month_day)
+myData_month_day <- myData_month_day %>% 
+              add_column(month_day = month_day)
+view(myData_month_day)
+
+myData_day
+Data_2014 <- filter(myData_day, year == 2014)
+#view(myData_day)
+#ggplot(myData_month_day, mapping = aes(x=month_day, y=pm2.5_mean)) + geom_point()
+ggplot(Data_2014, mapping = aes(x=date, y=pm2.5_mean)) + geom_point()
+
+
+p<-ggplot(Data_2014, aes(x=month, y=pm2.5_mean)) +
+  geom_boxplot()
+p
+#p <- ggplot(myData_day, aes(x=pm2.5_mean, color=day)) +
+#  geom_density()+
+#  labs(title="PM2.5 Density Curve based on Season",x="PM2.5 concentration (ug/m^3)", y = "Density")
+#p
+
+# p <- ggplot(data=myData_day, aes(x=day, y=pm2.5_mean)) +
+#  geom_bar(stat="identity")
+# p 
+
+# third week will be the worse of the the whole month?
+#x-axis --year
+
+```
+
+
+# Q2.Which season has severer pm2.5 problem in a year?  (daliy)     auto.arima;forecast R package
+```{r code chunk 2}
+#view(myData)
+
+myData$season[myData$month == 3 | myData$month == 4 | myData$month == 5] = "Spring"
+myData$season[myData$month == 6 | myData$month == 7 | myData$month == 8] = "Summer"
+myData$season[myData$month == 9 | myData$month == 10 | myData$month == 11] = "Autumn"
+myData$season[myData$month == 12 | myData$month == 1 | myData$month == 2] = "Winter"
+
+#view(myData)
+
+myData_day2 <- myData %>% 
+  group_by(season) %>% 
+  summarize(pm2.5_mean=mean(pm2.5, na.rm=T), pm2.5_CV=CV(pm2.5, na.rm=T))
+summary(myData_day2)
+
+
+
+view(myData_day2)
+
+#view(myData)
+
+# winter mean is higher on the table
+p <- ggplot(myData, aes(x=pm2.5, color=season)) +
+  geom_density()+
+  labs(title="Average PM2.5 Density Curve based on Season",x="Average PM2.5 concentration (ug/m^3)", y = "Density")
+p
+
+p<-ggplot(myData, aes(x=season, y=pm2.5, color=season)) +
+  geom_boxplot()+
+  labs(title="Box plot of Average PM2.5 based on Season",y="Average PM2.5 concentration (ug/m^3)", x = "Season")
+p
+# Add mean line
+#p + geom_vline(data=myData_day2, aes(xintercept=pm2.5_mean),
+ #           color=season, linetype="dashed")
+```
+
+# Q3.Does the problem of pm2.5 become more serious year by year? What is the trend?  get rid of hour (mean of day) predict 2015
+
+```{r code chunk 3}
+#group the data by year and month
+myData_month <- myData %>% 
+  group_by(year, month) %>% 
+  summarize(pm2.5_mean=mean(pm2.5, na.rm=T), pm2.5_CV=CV(pm2.5, na.rm=T))
+summary(myData_month)
+
+#view(myData_month)
+
+pm_mean <- myData_month[, 3, drop=FALSE] #take the pm2.5 average for each month
+pm_mean_maxtric <- as.matrix(pm_mean) #transform to maxtric
+auto.arima(pm_mean)  #time span: 2010-01-01 to 2014-12-31
+pm_q3 <- ts(pm_mean, frequency = 12, start = c(2010, 1)) # let's convert it into a time series, otherwise auto.arima will not consider seasonal ARIMA models
+auto.arima(pm_q3, seasonal=FALSE) # ARIMA(5,1,1)   non-seasonal
+auto.arima(pm_q3, seasonal=TRUE) # ARIMA(2,1,2)(1,1,1)[12]   seasonal
+
+#forecast one year into the future
+pm_q3_model<-auto.arima(pm_q3, seasonal=TRUE)
+pm_q3_forecast<-forecast(pm_q3_model, h=12)
+plot(pm_q3_forecast,
+  xlab="Year", ylab="Average PM2.5 (ug/m^3)") # plot forecast
+```
+
+
+# Q4.How does the PM2.5 work with the environment?  (MARSS with covariates)      
+Null Hypothesis:
+The environment has no effect on the PM2.5 (like Temperature, wind, snow, rain).
+
+Alternative Hypothesis:
+PM2.5 has effect on the environment.
+(eg. higher pm2.5 concentration has higher temperature)
+
+```{r code chunk 4}
+myData_env <- myData %>% 
+  group_by(year, month) %>% 
+  summarize(pm2.5_mean=mean(pm2.5, na.rm=T), pm2.5_CV=CV(pm2.5, na.rm=T), 
+            TEMP_mean=mean(TEMP, na.rm=T), Iws_mean=mean(Iws, na.rm=T), 
+            Is_mean=mean(Is, na.rm=T), Ir_mean=mean(Ir, na.rm=T))
+summary(myData_env)
+#view(myData_env)
+
+date <-seq(lubridate::as_date("2010-1-1"), lubridate::as_date("2014-12-31"), by = "month")
+myData_env <- myData_env %>% 
+              add_column(date = date)
+
+#responses (or 'variates')
+target <- cbind(myData_env$pm2.5_mean, myData_env$date)
+target_maxtric <- as.matrix(target) #transform to maxtric
+class(target_maxtric)
+dim(target_maxtric)
+target_maxtric
+
+#view(myData_env)
+#drivers (or 'covariates')
+covar <- cbind(myData_env$TEMP_mean, myData_env$Iws_mean, myData_env$Is_mean, myData_env$Ir_mean)
+covar_maxtric <- t(as.matrix(covar)) #transform to maxtric
+covar_maxtric
+
+covar1<-zscore(t(as.matrix(covar_maxtric[1,], drop=FALSE))) # 1st covariate
+covar2<-zscore(t(as.matrix(covar_maxtric[2,], drop=FALSE))) # 2nd covariate
+covar3<-zscore(t(as.matrix(covar_maxtric[3,], drop=FALSE))) # 3rd covariate
+covar4<-zscore(t(as.matrix(covar_maxtric[4,], drop=FALSE))) # 4th covariate
+zscore_covar_maxtric <- zscore(covar_maxtric)
+
+dat <- zscore(t(target_maxtric)[1,])
+dat
+
+# Build model for covariate 1
+mod0 = list()
+# Define the parameters in the X equation (process model)
+mod0$B = "identity"
+mod0$U = "equal"  # you could compare to "equal"
+mod0$Q = "diagonal and equal"
+#The thing we are trying to get at is C, the effect of our driver on the species
+mod0$C = "equal"
+mod0$c = covar1 # This is the covariate 1 data
+# Define the parameters in the Y equation (observation model)
+mod0$Z = "identity"
+  
+# For R we set up a diag matrix with 0s where there are 0s and characters for things we want to estimate (one value per species)
+mod0$R = "zero"
+mod0$A = "zero"
+  
+# Let's fit the model
+mod0.fit = MARSS(dat, model=mod0, control=list(maxit=1000))
+
+
+# Do not bootstrap model unless you have a lot of time (it may take several hours)
+kem.w.boot.CIs=MARSSparamCIs(mod0.fit,method="parametric",nboot=1000)  
+kem.w.boot.CIs
+
+# Build model for covariate 2
+mod1 = mod0
+mod1$c = covar2 # This is the covariate 1 data
+# Let's fit the model
+mod1.fit = MARSS(dat, model=mod1, control=list(maxit=1000))
+kem.w.boot.CIs=MARSSparamCIs(mod1.fit,method="parametric",nboot=1000)  
+kem.w.boot.CIs
+
+# Build model for covariate 3
+mod2 = mod0
+mod2$c = covar3 # This is the covariate 1 data
+# Let's fit the model
+mod2.fit = MARSS(dat, model=mod2, control=list(maxit=1000))
+kem.w.boot.CIs=MARSSparamCIs(mod2.fit,method="parametric",nboot=1000)  
+kem.w.boot.CIs
+
+# Build model for covariate 4
+mod3 = mod0
+mod3$c = covar4 # This is the covariate 1 data
+# Let's fit the model
+mod3.fit = MARSS(dat, model=mod3, control=list(maxit=1000))
+kem.w.boot.CIs=MARSSparamCIs(mod3.fit,method="parametric",nboot=1000)  
+kem.w.boot.CIs
+```
+List of covariates:
+covariate 1: TEMP_mean -- mean Temperature (â„ƒ)
+covariate 2: Iws_mean -- mean Cumulated wind speed (m/s)
+covariate 3: Is_mean -- mean Cumulated hours of snow
+covariate 4: Ir_mean -- mean Cumulated hours of rain
+
+Target:
+pm2.5: PM2.5 concentration (ug/m^3)
+
+see the CI and if covers 0, means not significant -- null true
+negative sign -- negative relationship between them
